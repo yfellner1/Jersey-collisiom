@@ -1,0 +1,7 @@
+{
+  "name": "jersey-collision-tools",
+  "private": true,
+  "type": "commonjs",
+  "scripts": { "test": "node tests/run.js" },
+  "devDependencies": { "jsdom": "24.1.0", "papaparse": "5.4.1" }
+}

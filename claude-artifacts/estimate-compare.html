@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Estimate Compare: Jersey Collision vs Insurance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
+<style>
+:root{
+  --bg:#F4F6FB; --surface:#FFFFFF; --ink:#1A2050; --muted:#5A6285; --line:#DCE1EE; --soft:#EEF1F8;
+  --navy:#2C3A93; --on-navy:#FFFFFF; --lime:#ADD41A; --cyan:#63CCED;
+  --ok:#5E7A00; --ok-bg:#EEF6D2; --warn:#A35F00; --warn-bg:#FFF1D9; --bad:#B2381F; --bad-bg:#FCE5DF;
+  --ours:#0C6E8E; --ours-bg:#DDF4FC; --theirs:#6B3FA0; --theirs-bg:#EEE5F8; --hl:#FFF3B0;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#11152B; --surface:#1A2042; --ink:#E9ECF8; --muted:#A0A8CB; --line:#2E3661; --soft:#222951;
+    --navy:#8592F5; --on-navy:#11152B; --lime:#C3E641; --cyan:#7AD6F2;
+    --ok:#C3E641; --ok-bg:#2A3613; --warn:#FFC266; --warn-bg:#3A2C12; --bad:#FF9B85; --bad-bg:#3E1F1A;
+    --ours:#7AD6F2; --ours-bg:#123444; --theirs:#C9A8F2; --theirs-bg:#2D2245; --hl:#4A4214;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#11152B; --surface:#1A2042; --ink:#E9ECF8; --muted:#A0A8CB; --line:#2E3661; --soft:#222951;
+  --navy:#8592F5; --on-navy:#11152B; --lime:#C3E641; --cyan:#7AD6F2;
+  --ok:#C3E641; --ok-bg:#2A3613; --warn:#FFC266; --warn-bg:#3A2C12; --bad:#FF9B85; --bad-bg:#3E1F1A;
+  --ours:#7AD6F2; --ours-bg:#123444; --theirs:#C9A8F2; --theirs-bg:#2D2245; --hl:#4A4214;
+  color-scheme: dark;
+}
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",Arial,sans-serif;font-size:1rem;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1150px;margin:0 auto;padding:2.25rem 1.25rem 4rem}
+header{margin-bottom:2rem}
+h1{font-size:clamp(1.6rem,4vw,2.2rem);line-height:1.15;margin:0;letter-spacing:-.01em}
+h2{font-size:1.15rem;margin:0 0 .25rem}
+h3{font-size:1.05rem;margin:0 0 .75rem}
+.sub{color:var(--muted);margin:.4rem 0 0;max-width:64ch}
+.hint{color:var(--muted);font-size:.92rem;margin:0}
+.sources{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem}
+@media (max-width:760px){.sources{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:1.4rem}
+.panel.ours{border-top:5px solid var(--cyan)}
+.panel.theirs{border-top:5px solid var(--theirs)}
+.drop{margin-top:1rem;border:2px dashed var(--line);border-radius:10px;padding:1.4rem 1rem;text-align:center;cursor:pointer;transition:border-color .15s,background .15s}
+.drop:hover,.drop.over{border-color:var(--navy);background:color-mix(in srgb,var(--navy) 6%,transparent)}
+.drop strong{display:block}.drop span{color:var(--muted);font-size:.9rem}
+.loaded{margin-top:.8rem;font-size:.92rem;color:var(--muted)}.loaded b{color:var(--ink)}
+.status{margin-top:.6rem;font-size:.92rem}
+.status.err{color:var(--bad)}.status.good{color:var(--ok)}
+textarea{font:inherit;font-size:.88rem;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:.6rem;width:100%;min-height:140px;margin-top:.75rem;display:none}
+textarea.show{display:block}
+button{font:inherit;cursor:pointer;border-radius:10px;border:1px solid transparent}
+button:focus-visible,textarea:focus-visible,.drop:focus-visible,select:focus-visible{outline:3px solid var(--navy);outline-offset:2px}
+.primary{background:var(--navy);color:var(--on-navy);font-weight:700;padding:.75rem 1.4rem;font-size:1rem}
+.primary:disabled{opacity:.45;cursor:not-allowed}
+.ghost{background:transparent;color:var(--navy);border-color:var(--line);padding:.55rem 1rem;font-size:.92rem}
+.ghost:hover{border-color:var(--navy)}
+.link{background:none;border:none;color:var(--navy);text-decoration:underline;padding:0;font-size:.92rem;margin-top:.6rem}
+.run{display:flex;flex-wrap:wrap;align-items:center;gap:1rem;margin:1.5rem 0 2.5rem}
+.progress{color:var(--muted);font-size:.95rem}
+#results{display:none}
+.verdict{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:1.5rem;margin-bottom:1.25rem}
+.verdict .big{font-size:clamp(1.35rem,3.2vw,1.85rem);font-weight:700;line-height:1.25;margin:0 0 .5rem}
+.verdict .facts{display:flex;flex-wrap:wrap;gap:.5rem 1.5rem;color:var(--muted)}
+.verdict .facts b{color:var(--ink);font-variant-numeric:tabular-nums}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:1.4rem}
+.card + .card{margin-top:1.25rem}
+.chips{display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1rem}
+.chip{display:inline-flex;align-items:center;gap:.5rem;background:var(--surface);border:1px solid var(--line);color:var(--ink);padding:.45rem .85rem;border-radius:999px;font-size:.92rem}
+.chip .dot{width:10px;height:10px;border-radius:50%}
+.chip[aria-pressed="true"]{border-color:var(--navy);box-shadow:inset 0 0 0 1px var(--navy);font-weight:700}
+.toolbar{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:.75rem;margin-bottom:.9rem}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.94rem}
+th,td{text-align:left;padding:.65rem .7rem;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:.83rem;color:var(--muted);font-weight:700}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.lines table{min-width:900px}
+.tag{display:inline-block;padding:.2rem .55rem;border-radius:6px;font-size:.8rem;font-weight:700;white-space:nowrap}
+.t-ours{color:var(--ours);background:var(--ours-bg)}.t-theirs{color:var(--theirs);background:var(--theirs-bg)}
+.t-diff{color:var(--warn);background:var(--warn-bg)}.t-same{color:var(--ok);background:var(--ok-bg)}
+.desc{font-weight:700}
+.sm{display:block;font-size:.82rem;color:var(--muted);font-weight:400}
+.pair{display:block;white-space:nowrap}
+.pair .o{color:var(--ours)}.pair .t{color:var(--theirs)}
+td.chg{background:var(--hl)}
+.d-pos{color:var(--ok);font-weight:700}.d-neg{color:var(--bad);font-weight:700}
+.legend{display:flex;flex-wrap:wrap;gap:1rem;font-size:.88rem;color:var(--muted);margin-bottom:.75rem}
+.legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:.35rem;vertical-align:middle}
+.legend .lo::before{background:var(--cyan)}.legend .lt::before{background:var(--theirs)}
+.dlist{display:grid;gap:1rem}
+.dcard{border:1px solid var(--line);border-left:6px solid var(--line);border-radius:12px;padding:1.1rem 1.2rem;background:var(--surface)}
+.dcard.k-ours{border-left-color:var(--cyan)}.dcard.k-theirs{border-left-color:var(--theirs)}.dcard.k-diff{border-left-color:var(--warn)}.dcard.k-same{border-left-color:var(--lime)}
+.dtop{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:.5rem 1rem;margin-bottom:.4rem}
+.dtitle{font-size:1.08rem;font-weight:700;line-height:1.3}
+.dgap{text-align:right;font-variant-numeric:tabular-nums}
+.dgap b{display:block;font-size:1.15rem}
+.dgap span{font-size:.8rem;color:var(--muted)}
+.dsay{margin:.15rem 0 .85rem;font-size:.98rem}
+.grid3{display:grid;grid-template-columns:minmax(110px,.8fr) 1fr 1fr 1fr;border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:.93rem}
+.grid3 > div{padding:.5rem .7rem;border-top:1px solid var(--line)}
+.grid3 > .h{border-top:none;font-size:.8rem;font-weight:700;color:var(--muted);background:var(--soft)}
+.grid3 .h.o{color:var(--ours)}.grid3 .h.t{color:var(--theirs)}
+.grid3 .f{color:var(--muted)}
+.grid3 .v{font-variant-numeric:tabular-nums}
+.grid3 .x{background:var(--hl);font-weight:700}
+.grid3 .c{font-size:.88rem;font-weight:700}
+.grid3 .c.d-neg{color:var(--bad)}.grid3 .c.d-pos{color:var(--ok)}
+.grid3 .miss{color:var(--muted);font-style:italic}
+@media (max-width:620px){.grid3{grid-template-columns:90px 1fr 1fr}.grid3 .c,.grid3 .h.c{display:none}}
+.how{margin-top:.75rem;font-size:.85rem;color:var(--muted);display:flex;flex-wrap:wrap;gap:.25rem 1.25rem}
+.how b{color:var(--ink);font-weight:700}
+.samehead{display:flex;justify-content:space-between;gap:1rem;font-size:.95rem}
+.empty{color:var(--muted);text-align:center;padding:2rem 1rem}
+.note{color:var(--muted);font-size:.88rem;margin-top:1rem}
+.fallback{display:none}
+.toast{position:fixed;left:50%;bottom:calc(1.5rem + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:.65rem 1.1rem;border-radius:10px;font-size:.92rem;opacity:0;pointer-events:none;transition:opacity .2s;z-index:20}
+.toast.show{opacity:1}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Estimate compare</h1>
+    <p class="sub">Drop in the Jersey Collision estimate or supplement and the insurance company’s version. Every line is matched up, and the differences are listed with what each one is worth.</p>
+  </header>
+
+  <section class="sources">
+    <div class="panel ours" data-side="ours">
+      <h2>Jersey Collision</h2>
+      <p class="hint">Our estimate or supplement, as a PDF.</p>
+      <div class="drop" tabindex="0" role="button"><strong>Choose PDF or drop it here</strong><span>Or paste the text below</span></div>
+      <input type="file" accept="application/pdf,.pdf,.txt" hidden>
+      <button class="link" data-paste>Paste text instead</button>
+      <textarea aria-label="Paste our estimate text" placeholder="Paste the full estimate text here"></textarea>
+      <div class="loaded"></div>
+      <div class="status" role="status"></div>
+    </div>
+    <div class="panel theirs" data-side="theirs">
+      <h2>Insurance</h2>
+      <p class="hint">The insurer’s estimate or supplement, as a PDF.</p>
+      <div class="drop" tabindex="0" role="button"><strong>Choose PDF or drop it here</strong><span>Or paste the text below</span></div>
+      <input type="file" accept="application/pdf,.pdf,.txt" hidden>
+      <button class="link" data-paste>Paste text instead</button>
+      <textarea aria-label="Paste insurance estimate text" placeholder="Paste the full estimate text here"></textarea>
+      <div class="loaded"></div>
+      <div class="status" role="status"></div>
+    </div>
+  </section>
+
+  <div class="run">
+    <button class="primary" id="runBtn" disabled>Compare</button>
+    <button class="ghost" id="stopBtn" hidden>Stop</button>
+    <label class="hint" style="display:inline-flex;gap:.4rem;align-items:center"><input type="checkbox" id="fresh"> Re-read the PDFs from scratch</label>
+    <span class="progress" id="progress"></span>
+  </div>
+
+  <section id="results" aria-live="polite">
+    <div class="verdict" id="verdict"></div>
+
+    <div class="card" id="checks" style="margin-bottom:1.25rem"></div>
+    <div class="card lines">
+      <div class="toolbar">
+        <div><h3 style="margin:0">Line by line</h3><p class="hint">Only lines where the price, labor hours or paint hours differ. Highlighted values are the ones that don’t match.</p></div>
+        <button class="ghost" id="copyBtn">Copy differences</button>
+      </div>
+      <div class="chips" id="chips"></div>
+      <div class="dlist" id="lineBody"></div>
+      <textarea class="fallback" id="fallback" readonly aria-label="Text to copy"></textarea>
+    </div>
+
+    <div class="card">
+      <h3>Totals</h3>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Category</th><th class="num">Jersey Collision</th><th class="num">Insurance</th><th class="num">Difference</th></tr></thead>
+        <tbody id="totBody"></tbody>
+      </table></div>
+    </div>
+
+    <div class="card" id="rateCard">
+      <h3>Labor and material rates</h3>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Rate</th><th class="num">Jersey Collision</th><th class="num">Insurance</th><th class="num">Difference</th></tr></thead>
+        <tbody id="rateBody"></tbody>
+      </table></div>
+    </div>
+    <p class="note">Lines are read from each PDF by Claude and matched by description and part number. The dollar amount on each card is approximate: part price times quantity, plus hours at our labor rates, so rate differences show only in the rates table. Check any line that matters against the PDFs before sending it to the adjuster.</p>
+  </section>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+(function(){
+var $=function(s,r){return (r||document).querySelector(s)}, $$=function(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s))};
+function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
+function money(n){if(n==null||isNaN(n))return "—";var s=Math.abs(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});return (n<0?"−$":"$")+s}
+function hrs(n){return n==null||isNaN(n)?"—":(Math.round(n*10)/10).toFixed(1)}
+function r2(n){return Math.round(n*100)/100}
+function N(v){if(v==null||v==="")return null;if(typeof v==="number")return v;var s=String(v).replace(/[^0-9.\-]/g,"");var n=parseFloat(s);return isNaN(n)?null:n}
+function toast(m){var t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(t._h);t._h=setTimeout(function(){t.classList.remove("show")},2400)}
+if(window.pdfjsLib)pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+var sides={ours:{label:"Jersey Collision",text:"",images:null,file:null},theirs:{label:"Insurance",text:"",images:null,file:null}};
+var sample=null, limits=null, ctl=null, result=null, filter="diff";
+
+var capReady=(async function(){
+  try{ if(window.claude&&window.claude.use) sample=await window.claude.use("sample"); }catch(e){}
+  if(sample){try{limits=await sample.limits()}catch(e){}}
+  else $("#progress").textContent="Reading estimates needs the published page opened in Claude.";
+})();
+
+/* ---------- inputs ---------- */
+$$(".panel").forEach(function(p){
+  var side=p.dataset.side, drop=$(".drop",p), input=$("input[type=file]",p), ta=$("textarea",p);
+  drop.addEventListener("click",function(){input.click()});
+  drop.addEventListener("keydown",function(e){if(e.key==="Enter"||e.key===" "){e.preventDefault();input.click()}});
+  drop.addEventListener("dragover",function(e){e.preventDefault();drop.classList.add("over")});
+  drop.addEventListener("dragleave",function(){drop.classList.remove("over")});
+  drop.addEventListener("drop",function(e){e.preventDefault();drop.classList.remove("over");if(e.dataTransfer.files[0])load(side,e.dataTransfer.files[0])});
+  input.addEventListener("change",function(){if(input.files[0])load(side,input.files[0]);input.value=""});
+  $("[data-paste]",p).addEventListener("click",function(){ta.classList.toggle("show");if(ta.classList.contains("show"))ta.focus()});
+  ta.addEventListener("input",function(){sides[side].text=ta.value;sides[side].images=null;sides[side].file=null;$(".loaded",p).textContent=ta.value.trim()?"Pasted text":"";setStatus(side,"");ready()});
+});
+function setStatus(side,msg,cls){var el=$('.panel[data-side="'+side+'"] .status');el.textContent=msg;el.className="status"+(cls?" "+cls:"")}
+function ready(){$("#runBtn").disabled=!(has("ours")&&has("theirs"))}
+function has(s){return !!(sides[s].text.trim()||(sides[s].images&&sides[s].images.length))}
+
+async function load(side,file){
+  var p=$('.panel[data-side="'+side+'"]'), S=sides[side];
+  S.text="";S.images=null;S.file=file.name;
+  $(".loaded",p).innerHTML="<b>"+esc(file.name)+"</b>";
+  setStatus(side,"Reading the PDF…");ready();
+  try{
+    if(/\.txt$/i.test(file.name)){S.text=await file.text();setStatus(side,"Text loaded","good");ready();return}
+    if(!window.pdfjsLib)throw new Error("nolib");
+    var pdf=await pdfjsLib.getDocument({data:new Uint8Array(await file.arrayBuffer()),isEvalSupported:false,disableFontFace:true,useSystemFonts:false}).promise;
+    var out=[];
+    for(var i=1;i<=pdf.numPages;i++){
+      var page=await pdf.getPage(i), tc=await page.getTextContent(), rows={};
+      tc.items.forEach(function(it){if(!it.str||!it.str.trim())return;var y=Math.round(it.transform[5]/2.5);(rows[y]=rows[y]||[]).push({x:it.transform[4],s:it.str,w:it.width})});
+      var ys=Object.keys(rows).map(Number).sort(function(a,b){return b-a});
+      out.push("--- Page "+i+" ---");
+      ys.forEach(function(y){var r=rows[y].sort(function(a,b){return a.x-b.x}),line="",end=null;r.forEach(function(it){if(end!=null){var gap=it.x-end;line+=gap>12?"   ":gap>1.5?" ":""}line+=it.s;end=it.x+(it.w||0)});out.push(line)});
+    }
+    var text=out.join("\n"), chars=text.replace(/---.*---|\s/g,"").length;
+    $(".loaded",p).innerHTML="<b>"+esc(file.name)+"</b> · "+pdf.numPages+" page"+(pdf.numPages>1?"s":"");
+    if(chars>40*pdf.numPages){S.text=text;setStatus(side,"Ready","good");ready();return}
+    // scanned PDF: render pages to images
+    setStatus(side,"This PDF is a scan. Preparing the pages…");
+    await capReady;
+    if(!(limits&&limits.images)){setStatus(side,"This PDF is a scan with no readable text, and scanned pages can’t be sent from this view. Open the page from its claude.ai link, or paste the text instead.","err");return}
+    var max=Math.min(pdf.numPages,limits.images.maxCount||8), imgs=[];
+    for(var k=1;k<=max;k++){
+      var pg=await pdf.getPage(k), vp=pg.getViewport({scale:1.7}), c=document.createElement("canvas");
+      c.width=vp.width;c.height=vp.height;await pg.render({canvasContext:c.getContext("2d"),viewport:vp}).promise;
+      imgs.push(await new Promise(function(res){c.toBlob(res,"image/jpeg",.85)}));
+    }
+    S.images=imgs;S.imgKey=hashStr(file.name+"|"+file.size+"|"+file.lastModified);
+    setStatus(side,"Scanned PDF. "+max+" page"+(max>1?"s":"")+" will be read as images"+(max<pdf.numPages?" (first "+max+" only)":"")+".","good");ready();
+  }catch(e){setStatus(side,(e&&e.message==="nolib")?"The PDF reader didn’t load. Refresh the page, or paste the estimate text instead.":"This PDF couldn’t be opened ("+((e&&(e.name||e.message))||"unknown error")+"). Try pasting its text instead.","err")}
+}
+
+/* ---------- extraction ---------- */
+var PROMPT=function(label){return "You are reading an auto body repair estimate or supplement (CCC ONE, Mitchell, Audatex or similar). This one is from: "+label+".\n"+
+"Extract EVERY estimate line in order, and the totals and rates. Do not invent anything; use null for anything not shown. Numbers are plain (no $ or commas).\n"+
+"Reply with only this JSON:\n"+
+'{"vehicle":"","claim":"","estimateLabel":"e.g. Supplement S02","lines":[{"line":"12","op":"Repl|R&I|Rpr|Refn|Subl|Blnd|Algn|O/H|Add|...","desc":"Front bumper cover","partNo":"52119-0X935","partType":"OEM|A/M|LKQ|Reman|Opt OEM|null","qty":1,"price":412.18,"labor":2.1,"laborType":"Body|Frame|Mech|Struct|Glass|Diag|null","paint":3.0,"notes":"any flags such as Incl, included, judgment item"}],'+
+'"totals":{"parts":null,"bodyLaborHours":null,"bodyLabor":null,"paintLaborHours":null,"paintLabor":null,"frameLaborHours":null,"frameLabor":null,"mechLaborHours":null,"mechLabor":null,"structLaborHours":null,"structLabor":null,"paintMaterials":null,"bodyMaterials":null,"sublet":null,"towing":null,"storage":null,"misc":null,"tax":null,"grandTotal":null,"deductible":null,"netTotal":null},'+
+'"rates":{"body":null,"paint":null,"frame":null,"mech":null,"struct":null,"paintMaterialsPerHour":null,"taxPercent":null}}\n'+
+"Rules: one object per estimate line, including sublet, misc and R&I lines. Labor hours go in labor, refinish hours in paint. price is the amount printed in that line’s price column, copied exactly as printed: never calculate, round or guess a number. Lines continue across page breaks: read every page and do not skip or merge lines. If a line shows m or * or Incl for an included operation, put it in notes. Ignore page headers, footers and disclaimers.";};
+function hashStr(str){var h1=0x811c9dc5,h2=0;for(var i=0;i<str.length;i++){var c=str.charCodeAt(i);h1=Math.imul(h1^c,16777619)>>>0;h2=(h2*31+c)>>>0}return h1.toString(36)+h2.toString(36)+str.length.toString(36)}
+function docKey(S){return "est-read-v2:"+(S.text.trim()?hashStr(S.text):S.imgKey||"")}
+function getCached(S){try{var v=localStorage.getItem(docKey(S));return v?JSON.parse(v):null}catch(e){return null}}
+function putCached(S,v){try{localStorage.setItem(docKey(S),JSON.stringify(v))}catch(e){}}
+async function extract(side,signal){
+  var S=sides[side];
+  if(!$("#fresh").checked){var c=getCached(S);if(c)return c}
+  var r=await extractLive(side,signal);putCached(S,r);return r;
+}
+async function extractLive(side,signal){
+  var S=sides[side], opts={signal:signal,modelTier:"complex",cache:false}, input;
+  if(S.text.trim()){input=PROMPT(S.label)+"\n\nESTIMATE TEXT:\n"+S.text.slice(0,240000)}
+  else {input=PROMPT(S.label)+"\n\nThe estimate pages are attached as images.";opts.images=S.images}
+  return await sample.json(input,opts);
+}
+
+$("#runBtn").addEventListener("click",async function(){
+  if(!sample){toast("Open the published page in Claude to compare.");return}
+  ctl=new AbortController();
+  $("#runBtn").disabled=true;$("#stopBtn").hidden=false;
+  $("#progress").textContent="Reading both estimates. This usually takes under a minute…";
+  setStatus("ours","Reading…");setStatus("theirs","Reading…");
+  try{
+    var res=await Promise.all([extract("ours",ctl.signal).then(function(r){setStatus("ours",(r.lines||[]).length+" lines read","good");return r}),
+                               extract("theirs",ctl.signal).then(function(r){setStatus("theirs",(r.lines||[]).length+" lines read","good");return r})]);
+    try{result=compare(res[0],res[1]);filter="diff";renderAll();}
+    catch(err){window._raw=res;throw {code:"page_error",message:String(err&&err.message||err)}}
+    $("#progress").textContent="";$("#results").style.display="block";
+    $("#results").scrollIntoView({behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth",block:"start"});
+  }catch(e){
+    var m={cancelled:"Stopped.",not_granted:"Claude wasn’t allowed to read the estimates, so they can’t be compared here.",rate_limited:"Too many requests right now. Wait a minute and try again.",
+      prompt_too_large:"These estimates are too long to read at once. Try pasting only the line items and totals.",invalid_json:"The estimate couldn’t be read cleanly. Try again.",
+      refused:"One of the estimates couldn’t be read. Try pasting its text instead.",session_expired:"Sign in to Claude again, then retry.",image_rejected:"A scanned page couldn’t be read. Try pasting the text instead."};
+    $("#progress").textContent=(e&&e.code==="page_error")?"Both estimates were read, but the comparison hit a problem: "+e.message+". Send this message to Yitzi so it can be fixed.":((e&&m[e.code])||"Something went wrong reading the estimates. Try again.")+(e&&e.code?" (code: "+e.code+")":" ("+String(e&&e.message||e)+")");
+    ["ours","theirs"].forEach(function(s){if(/Reading/.test($('.panel[data-side="'+s+'"] .status').textContent))setStatus(s,"")});
+  }finally{$("#stopBtn").hidden=true;ready()}
+});
+$("#stopBtn").addEventListener("click",function(){if(ctl)ctl.abort()});
+
+/* ---------- matching ---------- */
+var STOP={"W":1,"WITH":1,"AND":1,"THE":1,"ASSY":1,"ASSEMBLY":1,"A":1};
+function toks(s){return String(s||"").toUpperCase().replace(/\bL\b|\bLH\b/g,"LT").replace(/\bR\b|\bRH\b/g,"RT").replace(/\bFRT\b/g,"FRONT").replace(/[^A-Z0-9 ]/g," ").split(/\s+/).filter(function(t){return t&&!STOP[t]})}
+function jac(a,b){var A={},B={},i=0,u=0;a.forEach(function(t){A[t]=1});b.forEach(function(t){B[t]=1});Object.keys(A).forEach(function(t){if(B[t])i++});u=Object.keys(A).length+Object.keys(B).length-i;return u?i/u:0}
+function np(s){return String(s||"").toUpperCase().replace(/[^A-Z0-9]/g,"")}
+function nop(s){var o=String(s||"").toUpperCase().replace(/[^A-Z&]/g,"");if(/^RPL|^REPL/.test(o))return "REPL";if(/^R&I|^RI$/.test(o))return "R&I";if(/^RPR|^REP$/.test(o))return "RPR";if(/^REF|^RFN/.test(o))return "REFN";return o}
+function S(v){if(v==null)return "";if(typeof v==="object")return Array.isArray(v)?v.map(S).filter(Boolean).join("; "):Object.keys(v).map(function(k){return S(v[k])}).filter(Boolean).join(" ");v=String(v).trim();return /^(null|undefined|n\/a|none)$/i.test(v)?"":v}
+function NN(v){if(typeof v==="object"&&v!==null)return null;return N(v)}
+function clean(l){var d=S(l.desc||l.description);return {line:S(l.line),op:S(l.op||l.operation),desc:d,partNo:S(l.partNo||l.partNumber),partType:S(l.partType),qty:NN(l.qty),price:NN(l.price),labor:NN(l.labor),laborType:S(l.laborType),paint:NN(l.paint),notes:S(l.notes),_t:toks(d),_p:np(S(l.partNo||l.partNumber)),_o:nop(S(l.op||l.operation))}}
+function tidy(E){
+  if(Array.isArray(E))E={lines:E};
+  if(!E||typeof E!=="object")E={};
+  var lines=Array.isArray(E.lines)?E.lines:(E.lines&&typeof E.lines==="object"?Object.keys(E.lines).map(function(k){return E.lines[k]}):[]);
+  var obj=function(o){var r={};if(o&&typeof o==="object"&&!Array.isArray(o))Object.keys(o).forEach(function(k){r[k]=NN(o[k])});return r};
+  return {vehicle:S(E.vehicle),claim:S(E.claim),estimateLabel:S(E.estimateLabel),lines:lines.filter(function(l){return l&&typeof l==="object"}),totals:obj(E.totals),rates:obj(E.rates)};
+}
+function rateFor(est,type){var r=est.rates||{};var t=String(type||"").toLowerCase();if(/frame/.test(t))return N(r.frame)||N(r.body);if(/mech|diag/.test(t))return N(r.mech)||N(r.body);if(/struct/.test(t))return N(r.struct)||N(r.body);return N(r.body)}
+function lineValue(est,l){if(!l)return 0;var v=(l.price||0)*(l.qty||1);var br=rateFor(est,l.laborType),pr=N((est.rates||{}).paint);if(l.labor&&br)v+=l.labor*br;if(l.paint&&pr)v+=l.paint*pr;return r2(v)}
+function compare(A,B){
+  A=tidy(A);B=tidy(B);
+  var a=(A.lines||[]).map(clean), b=(B.lines||[]).map(clean), pairs=[];
+  a.forEach(function(x,i){b.forEach(function(y,j){
+    var s=jac(x._t,y._t);
+    if(x._p&&y._p&&x._p===y._p)s+=1;
+    if(x._o&&x._o===y._o)s+=.1;
+    if(s>=.5)pairs.push({i:i,j:j,s:s});
+  })});
+  pairs.sort(function(p,q){return q.s-p.s});
+  var ua={},ub={},rows=[];
+  pairs.forEach(function(p){if(ua[p.i]||ub[p.j])return;ua[p.i]=ub[p.j]=1;var x=a[p.i],y=b[p.j];rows.push({o:x,t:y,oi:p.i,tj:p.j,how:(x._p&&x._p===y._p)?"Matched by part # "+(x.partNo||y.partNo):"Matched by description ("+Math.round(Math.min(1,jac(x._t,y._t))*100)+"% of words in common)"})});
+  a.forEach(function(x,i){if(!ua[i])rows.push({o:x,t:null,oi:i,tj:9999+i})});
+  b.forEach(function(y,j){if(!ub[j])rows.push({o:null,t:y,oi:null,tj:j})});
+  rows.forEach(function(r){
+    var o=r.o,t=r.t;
+    if(o&&t){
+      r.chg={price:Math.abs((o.price||0)-(t.price||0))>.004,labor:Math.abs((o.labor||0)-(t.labor||0))>.04,paint:Math.abs((o.paint||0)-(t.paint||0))>.04};
+      r.status=Object.keys(r.chg).some(function(k){return r.chg[k]})?"diff":"same";
+    } else {r.status=o?"ours":"theirs";var q=o||t;if(!q.price&&!q.labor&&!q.paint)r.status="skip"}
+    var rk=(A.rates&&N(A.rates.body))?A:B; r.gap=r2(lineValue(rk,t)-lineValue(rk,o)); // same rates both sides: rate gaps show in the rates table
+  });
+  rows=rows.filter(function(r){return r.status!=="skip"}); // one-sided lines with no price, labor or paint
+  // order by our line order, inserting insurer-only lines near their position
+  rows.sort(function(x,y){var kx=x.oi!=null?x.oi:(x.tj-0.5),ky=y.oi!=null?y.oi:(y.tj-0.5);return kx-ky});
+  return {A:A,B:B,rows:rows};
+}
+
+/* ---------- render ---------- */
+var LBL={ours:"Only on ours",theirs:"Only on insurance",diff:"Different",same:"Same"};
+var CLS={ours:"t-ours",theirs:"t-theirs",diff:"t-diff",same:"t-same"};
+function sumLines(E,k,filt){return r2((E.lines||[]).map(clean).filter(filt||function(){return true}).reduce(function(s,l){return s+(l[k]||0)},0))}
+function renderChecks(){
+  var out=[];
+  [["Jersey Collision",result.A],["Insurance",result.B]].forEach(function(x){
+    var E=x[1],t=E.totals||{};
+    var lab=["bodyLaborHours","frameLaborHours","mechLaborHours","structLaborHours"].reduce(function(s,k){return s+(N(t[k])||0)},0);
+    var checks=[["Paint hours",sumLines(E,"paint"),N(t.paintLaborHours),1],["Labor hours",sumLines(E,"labor"),lab||null,1],["Parts",sumLines(E,"price",function(l){return !/subl/i.test(l.op)}),N(t.parts),0]];
+    checks.forEach(function(c){if(c[2]==null)return;var off=Math.abs(c[1]-c[2])>(c[3]?.05:1);out.push({who:x[0],what:c[0],lines:c[1],printed:c[2],h:c[3],off:off})});
+  });
+  var bad=out.filter(function(c){return c.off});
+  var el=$("#checks");
+  if(!out.length){el.style.display="none";return}
+  el.style.display="";
+  el.innerHTML='<h3>Reading check</h3><p class="hint" style="margin-bottom:.75rem">'+(bad.length?"Some lines may have been misread. The lines read don’t add up to the totals printed on the estimate below. Check those areas against the PDF, or tick “Re-read the PDFs from scratch” and compare again.":"The lines read add up to the totals printed on each estimate.")+'</p><div class="tablewrap"><table><thead><tr><th>Estimate</th><th>Check</th><th class="num">Lines read add up to</th><th class="num">Printed on estimate</th><th>Result</th></tr></thead><tbody>'+
+    out.map(function(c){var f=c.h?hrs:money;return "<tr><td>"+c.who+"</td><td>"+c.what+'</td><td class="num">'+f(c.lines)+'</td><td class="num">'+f(c.printed)+'</td><td>'+(c.off?'<span class="tag t-diff">Doesn’t add up</span>':'<span class="tag t-same">Adds up</span>')+"</td></tr>"}).join("")+"</tbody></table></div>";
+}
+function renderAll(){renderChecks();renderVerdict();renderChips();renderLines();renderTotals();renderRates()}
+function grand(e){var t=e.totals||{};return N(t.grandTotal)}
+function renderVerdict(){
+  var A=result.A,B=result.B,ga=grand(A),gb=grand(B),c=counts();
+  var ourOnly=result.rows.filter(function(r){return r.status==="ours"}).reduce(function(s,r){return s-r.gap},0);
+  var big;
+  if(ga!=null&&gb!=null){var d=r2(gb-ga);big=Math.abs(d)<.005?"Both estimates total "+money(ga)+".":"Insurance is "+money(Math.abs(d))+(d<0?" lower":" higher")+" than our estimate."}
+  else big="Totals weren’t found on both estimates. See the line differences below.";
+  var facts=[];
+  if(ga!=null)facts.push("Ours <b>"+money(ga)+"</b>");if(gb!=null)facts.push("Insurance <b>"+money(gb)+"</b>");
+  facts.push("<b>"+c.ours+"</b> line"+(c.ours!==1?"s":"")+" only on ours"+(ourOnly>0?" (about "+money(ourOnly)+")":""));
+  facts.push("<b>"+c.theirs+"</b> only on insurance");facts.push("<b>"+c.diff+"</b> different");facts.push("<b>"+c.same+"</b> the same");
+  var meta=[A.vehicle||B.vehicle,(A.claim||B.claim)&&("Claim "+(A.claim||B.claim)),[A.estimateLabel,B.estimateLabel].filter(Boolean).join(" vs ")].filter(Boolean).join(" · ");
+  $("#verdict").innerHTML='<p class="big">'+esc(big)+'</p><div class="facts">'+facts.map(function(f){return "<span>"+f+"</span>"}).join("")+"</div>"+(meta?'<p class="hint" style="margin-top:.6rem">'+esc(meta)+"</p>":"");
+}
+function counts(){var c={ours:0,theirs:0,diff:0,same:0};result.rows.forEach(function(r){c[r.status]++});return c}
+function renderChips(){
+  var c=counts(),list=[["diff","All differences",c.ours+c.theirs+c.diff,"var(--navy)"],["ours",LBL.ours,c.ours,"var(--cyan)"],["theirs",LBL.theirs,c.theirs,"var(--theirs)"],["diffonly",LBL.diff,c.diff,"var(--warn)"],["same",LBL.same,c.same,"var(--ok)"],["all","Every line",result.rows.length,"var(--muted)"]];
+  $("#chips").innerHTML=list.filter(function(x){return x[2]||x[0]==="diff"||x[0]==="all"}).map(function(x){return '<button class="chip" data-f="'+x[0]+'" aria-pressed="'+(filter===x[0])+'"><span class="dot" style="background:'+x[3]+'"></span>'+esc(x[1])+" <b>"+x[2]+"</b></button>"}).join("");
+  $$("#chips .chip").forEach(function(b){b.addEventListener("click",function(){filter=b.dataset.f;renderChips();renderLines()})});
+}
+function shown(){return result.rows.filter(function(r){if(filter==="all")return true;if(filter==="diff")return r.status!=="same";if(filter==="diffonly")return r.status==="diff";return r.status===filter})}
+var FIELDS=[["price","Price"],["labor","Labor hours"],["paint","Paint hours"]];
+function fv(k,v){if(v==null||v==="")return null;if(k==="price")return money(v);if(k==="labor"||k==="paint")return hrs(v);return String(v)}
+function change(k,o,t){
+  var a=o?o[k]:null,b=t?t[k]:null;
+  if(k==="price"||k==="labor"||k==="paint"||k==="qty"){var x=N(a)||0,y=N(b)||0,d=Math.round((y-x)*100)/100;if(!d)return "";var f=String(k==="price"?money(Math.abs(d)):k==="qty"?Math.abs(d):hrs(Math.abs(d))+" hrs");return {cls:d<0?"d-neg":"d-pos",txt:(d<0?"−":"+")+f.replace(/^−/,"")}}
+  return {cls:"",txt:"Changed"};
+}
+function sentence(r){
+  var o=r.o,t=r.t;
+  if(r.status==="ours")return "The insurer left this line off their estimate.";
+  if(r.status==="theirs")return "The insurer added this line. It isn’t on our estimate.";
+  if(r.status==="same")return "Both estimates agree on this line.";
+  var bits=[];var c=r.chg;
+  if(c.price)bits.push("has "+money(t.price)+" instead of "+money(o.price));
+  if(c.labor)bits.push("allowed "+hrs(t.labor)+" labor hours instead of "+hrs(o.labor));
+  if(c.paint)bits.push("allowed "+hrs(t.paint)+" paint hours instead of "+hrs(o.paint));
+  if(!bits.length)return "The values differ slightly.";
+  var last=bits.pop();return "The insurer "+(bits.length?bits.join(", ")+" and "+last:last)+".";
+}
+function renderLines(){
+  var rows=shown(),box=$("#lineBody");
+  if(!rows.length){box.innerHTML='<div class="empty">'+(filter==="diff"?"No differences. The estimates agree line for line.":"Nothing in this view.")+"</div>";return}
+  box.innerHTML=rows.map(function(r){
+    var o=r.o,t=r.t,x=o||t;
+    var title=esc(x.desc||"(no description)")+(o&&t&&o.desc&&t.desc&&o.desc.toUpperCase()!==t.desc.toUpperCase()?'<span class="sm">Insurance calls it: '+esc(t.desc)+"</span>":"");
+    var gap=(r.status==="same"||!r.gap)?"":'<div class="dgap"><b class="'+(r.gap>0?"d-pos":"d-neg")+'">'+(r.gap>0?"+":"−")+money(Math.abs(r.gap)).replace("−","")+"</b><span>"+(r.gap<0?"less from insurance":"more from insurance")+"</span></div>";
+    var head='<div class="dtop"><div><span class="tag '+CLS[r.status]+'">'+LBL[r.status]+'</span><div class="dtitle" style="margin-top:.4rem">'+title+"</div></div>"+gap+"</div>";
+    var say='<p class="dsay">'+esc(sentence(r))+"</p>";
+    if(r.status==="same"){
+      return '<div class="dcard k-same">'+head+'<div class="how"><span>'+esc(r.how||"")+"</span><span>Our line <b>"+esc(o.line||"—")+"</b> · Insurance line <b>"+esc(t.line||"—")+"</b></span></div></div>";
+    }
+    var g='<div class="grid3"><div class="h">Field</div><div class="h o">Jersey Collision</div><div class="h t">Insurance</div><div class="h c">Change</div>';
+    FIELDS.forEach(function(f){
+      var k=f[0],a=o?fv(k,o[k]):null,b=t?fv(k,t[k]):null;
+      if(a==null&&b==null)return;
+      var differs=o&&t&&r.chg[k]!==undefined?r.chg[k]:(o&&t&&k==="laborType"?(String(o[k]||"").toUpperCase()!==String(t[k]||"").toUpperCase()&&o[k]&&t[k]):false);
+      var ch=(o&&t&&differs)?change(k,o,t):"";
+      g+='<div class="f">'+f[1]+"</div>"+
+        '<div class="v'+(differs?" x":"")+'">'+(o?(a==null?"—":esc(a)):'<span class="miss">Not on our estimate</span>')+"</div>"+
+        '<div class="v'+(differs?" x":"")+'">'+(t?(b==null?"—":esc(b)):'<span class="miss">Not on insurance estimate</span>')+"</div>"+
+        '<div class="c '+(ch?ch.cls:"")+'">'+(ch?esc(ch.txt):"")+"</div>";
+    });
+    g+="</div>";
+    var notes=[o&&o.notes&&("Our note: "+o.notes),t&&t.notes&&("Insurance note: "+t.notes)].filter(Boolean);
+    var how='<div class="how">'+(r.how?"<span>"+esc(r.how)+"</span>":"")+"<span>"+(o?"Our line <b>"+esc(o.line||"—")+"</b>":"")+(o&&t?" · ":"")+(t?"Insurance line <b>"+esc(t.line||"—")+"</b>":"")+"</span>"+notes.map(function(n){return "<span>"+esc(n)+"</span>"}).join("")+"</div>";
+    return '<div class="dcard k-'+r.status+'">'+head+say+g+how+"</div>";
+  }).join("");
+}
+var TOT=[["parts","Parts"],["bodyLaborHours","Body labor (hrs)",1],["bodyLabor","Body labor"],["paintLaborHours","Paint labor (hrs)",1],["paintLabor","Paint labor"],["frameLaborHours","Frame labor (hrs)",1],["frameLabor","Frame labor"],["mechLaborHours","Mechanical labor (hrs)",1],["mechLabor","Mechanical labor"],["structLaborHours","Structural labor (hrs)",1],["structLabor","Structural labor"],["paintMaterials","Paint materials"],["bodyMaterials","Body materials"],["sublet","Sublet"],["towing","Towing"],["storage","Storage"],["misc","Miscellaneous"],["tax","Sales tax"],["grandTotal","Grand total"],["deductible","Deductible"],["netTotal","Insurance pays"]];
+function diffRow(label,a,b,isH,bold){
+  var d=(a!=null&&b!=null)?r2(b-a):null, f=isH?hrs:money;
+  return "<tr"+(bold?' style="font-weight:700"':"")+"><td>"+label+'</td><td class="num">'+f(a)+'</td><td class="num">'+f(b)+'</td><td class="num '+(d>0?"d-pos":d<0?"d-neg":"")+'">'+(d==null?"—":d===0?(isH?"0.0":"$0.00"):(isH?(d>0?"+":"−")+hrs(Math.abs(d)):money(d)))+"</td></tr>";
+}
+function renderTotals(){
+  var a=result.A.totals||{},b=result.B.totals||{};
+  $("#totBody").innerHTML=TOT.filter(function(x){return N(a[x[0]])!=null||N(b[x[0]])!=null}).map(function(x){return diffRow(x[1],N(a[x[0]]),N(b[x[0]]),x[2],x[0]==="grandTotal")}).join("")||'<tr><td colspan="4" class="empty">No totals found.</td></tr>';
+}
+function renderRates(){
+  var a=result.A.rates||{},b=result.B.rates||{},R=[["body","Body labor $/hr"],["paint","Paint labor $/hr"],["frame","Frame labor $/hr"],["mech","Mechanical labor $/hr"],["struct","Structural labor $/hr"],["paintMaterialsPerHour","Paint materials $/hr"],["taxPercent","Tax %"]];
+  var rows=R.filter(function(x){return N(a[x[0]])!=null||N(b[x[0]])!=null});
+  $("#rateCard").style.display=rows.length?"":"none";
+  $("#rateBody").innerHTML=rows.map(function(x){var va=N(a[x[0]]),vb=N(b[x[0]]),d=(va!=null&&vb!=null)?r2(vb-va):null;var f=x[0]==="taxPercent"?function(v){return v==null?"—":v+"%"}:money;
+    return "<tr><td>"+x[1]+'</td><td class="num">'+f(va)+'</td><td class="num">'+f(vb)+'</td><td class="num '+(d>0?"d-pos":d<0?"d-neg":"")+'">'+(d==null?"—":x[0]==="taxPercent"?(d>0?"+":"")+d+"%":money(d))+"</td></tr>"}).join("");
+}
+
+/* ---------- copy ---------- */
+$("#copyBtn").addEventListener("click",function(){
+  var A=result.A,B=result.B,rows=result.rows.filter(function(r){return r.status!=="same"});
+  var L=["Estimate differences"+(A.claim||B.claim?" – claim "+(A.claim||B.claim):"")+(A.vehicle||B.vehicle?" – "+(A.vehicle||B.vehicle):"")];
+  var ga=grand(A),gb=grand(B);if(ga!=null&&gb!=null)L.push("Jersey Collision "+money(ga)+" vs insurance "+money(gb)+" (difference "+money(r2(gb-ga))+")");
+  function desc(l){return [l.op,l.desc,l.partNo&&("#"+l.partNo)].filter(Boolean).join(" ")}
+  function vals(l){return [l.price!=null&&money(l.price)+(l.qty&&l.qty!==1?" x"+l.qty:""),l.labor!=null&&hrs(l.labor)+" labor hrs",l.paint!=null&&hrs(l.paint)+" paint hrs"].filter(Boolean).join(", ")}
+  var o=rows.filter(function(r){return r.status==="ours"}),t=rows.filter(function(r){return r.status==="theirs"}),d=rows.filter(function(r){return r.status==="diff"});
+  if(o.length){L.push("","On our estimate, not on yours:");o.forEach(function(r){L.push("- "+desc(r.o)+(vals(r.o)?" ("+vals(r.o)+")":""))})}
+  if(d.length){L.push("","Lines that differ (ours → yours):");d.forEach(function(r){var parts=[];var c=r.chg;
+    if(c.price)parts.push("price "+money(r.o.price)+" → "+money(r.t.price));if(c.labor)parts.push("labor "+hrs(r.o.labor)+" → "+hrs(r.t.labor)+" hrs");if(c.paint)parts.push("paint "+hrs(r.o.paint)+" → "+hrs(r.t.paint)+" hrs");
+    L.push("- "+r.o.desc+": "+parts.join("; "))})}
+  if(t.length){L.push("","On your estimate, not on ours:");t.forEach(function(r){L.push("- "+desc(r.t)+(vals(r.t)?" ("+vals(r.t)+")":""))})}
+  var text=L.join("\n"),fb=$("#fallback");
+  function fall(){fb.style.display="block";fb.value=text;fb.focus();fb.select();toast("Select all and copy the text below")}
+  if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(text).then(function(){fb.style.display="none";toast("Copied. Paste it into an email to the adjuster.")},fall);else fall();
+});
+})();
+</script>
+</body>
+</html>
