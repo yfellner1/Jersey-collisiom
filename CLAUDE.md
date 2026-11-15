@@ -42,18 +42,34 @@ The `claude-artifacts/` files use `window.claude.use("sample")` (Claude reads PD
 - `ocr-reader.js`: scanned PDFs → Tesseract.js 5.1.1 (loaded on demand from jsdelivr) → statement lines.
   Amounts are verified against the statement's running balance column; unconfirmed lines are flagged.
   Tested on a 2-page scanned Bergey's statement: 49/49 lines and amounts read correctly.
-- Static site, no build step. Plain ES5-style JS, no framework. Keep it that way unless asked.
+- Static site, plain ES5-style JS, no framework. Keep it that way unless asked.
+  The only build step is the protection build below; the source itself stays plain and readable.
+
+## Protection (code is proprietary, see `LICENSE`)
+
+Yitzi wants the code as hard as possible to copy, especially by a client who leaves. So:
+- **Never publish the readable source.** This repo must stay private. Only the scrambled output in `dist/` is deployed.
+- `npm run build` → `dist/`: JS scrambled with javascript-obfuscator (control-flow flattening, encrypted strings,
+  self-defending, developer-tools pause), HTML minified, ownership banner on every file.
+  The Vercel copy is **locked to `vendor-invoice-reconciliation.vercel.app`**: copied elsewhere, it won't run.
+  Add any new custom domain to `LOCK_DOMAINS` in `build.js`, or the live site breaks on that domain.
+- `dist/claude-artifacts/*.html` are the scrambled claude.ai pages. Publish **those** to the artifacts, never the
+  originals. They aren't address-locked (claude.ai controls the address).
+- Every page has a visible `.legal-notice` footer. Keep it when editing pages.
+- `dist/` and `dist-test/` are build output, not committed.
 
 ## Deploying
 
 Vercel team `team_M8Fxw5ExVFWf9EdoeB6tomRR` (Reliable OS), project `vendor-invoice-reconciliation`
-(`prj_A0Q0K2jxpbpSQ1LBHiAURLRS7FWf`). From `vendor-reconciliation/`: `vercel --prod`.
+(`prj_A0Q0K2jxpbpSQ1LBHiAURLRS7FWf`). From the repo root: `npm run deploy`
+(runs both test suites, builds the locked copy, deploys `dist/vendor-reconciliation`). Never `vercel --prod`
+from `vendor-reconciliation/` directly: that would publish the readable source.
 The live site and the claude.ai version are separate copies: a change to one does not reach the other.
 After changing shared logic (matching, credits, report), apply it to both, or ask which one to update.
 
 ## Before shipping a change
 
-1. `npm install && npm test` (must pass).
+1. `npm install && npm test && npm run test:dist` (both must pass: the second checks the scrambled build).
 2. Open `vendor-reconciliation/index.html` locally, click "Try it with sample data", check the report reads sensibly.
 3. Never commit real client files (statements, CCC exports, estimates). Use `tests/fixtures/` with made-up data only.
 

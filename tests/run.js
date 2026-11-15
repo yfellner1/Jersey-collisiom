@@ -1,7 +1,8 @@
 // Checks for the Vercel vendor reconciliation. Run: npm test
 const fs=require('fs'),path=require('path'),assert=require('assert');
 const {JSDOM}=require('jsdom');
-const dir=path.join(__dirname,'..','vendor-reconciliation');
+// RECON_DIR lets the same checks run against the scrambled build (npm run test:dist).
+const dir=process.env.RECON_DIR?path.resolve(process.env.RECON_DIR):path.join(__dirname,'..','vendor-reconciliation');
 let failed=0;
 function t(name,fn){try{fn();console.log('  ok  '+name)}catch(e){failed++;console.log('  FAIL '+name+'\n       '+e.message)}}
 

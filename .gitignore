@@ -3,3 +3,5 @@ node_modules/
 *.log
 # never commit real client files
 private/
+dist/
+dist-test/
