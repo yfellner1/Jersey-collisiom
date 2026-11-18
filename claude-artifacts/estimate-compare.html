@@ -66,6 +66,8 @@ button:focus-visible,textarea:focus-visible,.drop:focus-visible,select:focus-vis
 .link{background:none;border:none;color:var(--navy);text-decoration:underline;padding:0;font-size:.92rem;margin-top:.6rem}
 .run{display:flex;flex-wrap:wrap;align-items:center;gap:1rem;margin:1.5rem 0 2.5rem}
 .progress{color:var(--muted);font-size:.95rem}
+.codes{font:inherit;font-size:.95rem;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:.45rem .65rem;width:14rem;max-width:100%}
+.codes:focus-visible{outline:3px solid var(--navy);outline-offset:2px}
 #results{display:none}
 .verdict{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:1.5rem;margin-bottom:1.25rem}
 .verdict .big{font-size:clamp(1.35rem,3.2vw,1.85rem);font-weight:700;line-height:1.25;margin:0 0 .5rem}
@@ -167,6 +169,11 @@ td.chg{background:var(--hl)}
     <span class="hint">Only match lines that have the same:</span>
     <label class="hint" style="display:inline-flex;gap:.4rem;align-items:center"><input type="checkbox" id="sameOp"> Oper code (Repl, R&amp;I, Rpr, Refn…)</label>
     <label class="hint" style="display:inline-flex;gap:.4rem;align-items:center"><input type="checkbox" id="sameSupp"> Supplement code (E01, S01, S02…)</label>
+  </div>
+  <div class="run" style="margin-top:-1.5rem">
+    <label class="hint" for="onlySupp">Only compare these supplements:</label>
+    <input class="codes" id="onlySupp" type="text" placeholder="e.g. S01, or S01, S02, or S01-S03" autocomplete="off" spellcheck="false">
+    <span class="hint">Leave empty to compare every line. Lines with no code count as the original estimate (E01).</span>
   </div>
 
   <section id="results" aria-live="polite">
@@ -321,7 +328,18 @@ $("#runBtn").addEventListener("click",async function(){
   }finally{$("#stopBtn").hidden=true;ready()}
 });
 $("#stopBtn").addEventListener("click",function(){if(ctl)ctl.abort()});
-function matchOpts(){return {sameOp:$("#sameOp").checked,sameSupp:$("#sameSupp").checked}}
+function fmtCode(c){var m=String(c).match(/^([A-Z]+)(\d+)$/);return m?m[1]+(m[2].length<2?"0":"")+m[2]:c}
+function parseCodes(txt){
+  // "S01, S02" or "s1 s2" or "S01-S03" or "E01, S02". Returns a list of normalised codes, or null for "everything".
+  var out=[],bad=[];
+  String(txt||"").toUpperCase().replace(/\s*-\s*|\s+TO\s+/g,"-").split(/[,;\s]+/).filter(Boolean).forEach(function(t){
+    var m=t.match(/^([A-Z]*)0*(\d+)(?:-|TO)([A-Z]*)0*(\d+)$/);
+    if(m){var pre=m[1]||m[3]||"S",x=Number(m[2]),y=Number(m[4]);if(y<x){var z=x;x=y;y=z}if(y-x>50){bad.push(t);return}for(var i=x;i<=y;i++)out.push(pre+i);return}
+    var c=nsupp(t);if(/^[A-Z]+\d+$/.test(c))out.push(c);else bad.push(t);
+  });
+  return {codes:out.length?out:null,bad:bad};
+}
+function matchOpts(){var pc=parseCodes($("#onlySupp").value);return {sameOp:$("#sameOp").checked,sameSupp:$("#sameSupp").checked,only:pc.codes,bad:pc.bad}}
 ["sameOp","sameSupp"].forEach(function(id){
   var box=$("#"+id);try{box.checked=localStorage.getItem("est-opt-"+id)==="1"}catch(e){}
   box.addEventListener("change",function(){
@@ -329,6 +347,8 @@ function matchOpts(){return {sameOp:$("#sameOp").checked,sameSupp:$("#sameSupp")
     if(lastRead){result=compare(lastRead[0],lastRead[1],matchOpts());renderAll();toast("Lines matched again.")}
   });
 });
+var onlyTimer=null;
+$("#onlySupp").addEventListener("input",function(){clearTimeout(onlyTimer);onlyTimer=setTimeout(function(){if(lastRead){result=compare(lastRead[0],lastRead[1],matchOpts());renderAll()}},350)});
 
 /* ---------- matching ---------- */
 var STOP={"W":1,"WITH":1,"AND":1,"THE":1,"ASSY":1,"ASSEMBLY":1,"A":1};
@@ -352,6 +372,12 @@ function lineValue(est,l){if(!l)return 0;var v=(l.price||0)*(l.qty||1);var br=ra
 function compare(A,B,opts){
   A=tidy(A);B=tidy(B);opts=opts||{};
   var a=(A.lines||[]).map(clean), b=(B.lines||[]).map(clean), pairs=[];
+  var hidden={a:0,b:0};
+  if(opts.only){
+    var want={};opts.only.forEach(function(c){want[c]=1});
+    var keep=function(l){var c=l._s||"E1";if(/^E0*$/.test(c))c="E1";return !!want[c]};
+    hidden.a=a.length;hidden.b=b.length;a=a.filter(keep);b=b.filter(keep);hidden.a-=a.length;hidden.b-=b.length;
+  }
   a.forEach(function(x,i){b.forEach(function(y,j){
     if(opts.sameOp&&x._o!==y._o)return;     // option: never pair a Repl line with an R&I line, etc.
     if(opts.sameSupp&&x._s!==y._s)return;   // option: never pair an S01 line with an S02 line, etc.
@@ -376,7 +402,7 @@ function compare(A,B,opts){
   rows=rows.filter(function(r){return r.status!=="skip"}); // one-sided lines with no price, labor or paint
   // order by our line order, inserting insurer-only lines near their position
   rows.sort(function(x,y){var kx=x.oi!=null?x.oi:(x.tj-0.5),ky=y.oi!=null?y.oi:(y.tj-0.5);return kx-ky});
-  return {A:A,B:B,rows:rows,opts:opts};
+  return {A:A,B:B,rows:rows,opts:opts,hidden:hidden};
 }
 
 /* ---------- render ---------- */
@@ -398,7 +424,13 @@ function renderChecks(){
   el.innerHTML='<h3>Reading check</h3><p class="hint" style="margin-bottom:.75rem">'+(bad.length?"Some lines may have been misread. The lines read don’t add up to the totals printed on the estimate below. Check those areas against the PDF, or tick “Re-read the PDFs from scratch” and compare again.":"The lines read add up to the totals printed on each estimate.")+'</p><div class="tablewrap"><table><thead><tr><th>Estimate</th><th>Check</th><th class="num">Lines read add up to</th><th class="num">Printed on estimate</th><th>Result</th></tr></thead><tbody>'+
     out.map(function(c){var f=c.h?hrs:money;return "<tr><td>"+c.who+"</td><td>"+c.what+'</td><td class="num">'+f(c.lines)+'</td><td class="num">'+f(c.printed)+'</td><td>'+(c.off?'<span class="tag t-diff">Doesn’t add up</span>':'<span class="tag t-same">Adds up</span>')+"</td></tr>"}).join("")+"</tbody></table></div>";
 }
-function renderMatchNote(){var o=result.opts||{},w=[o.sameOp&&"oper code",o.sameSupp&&"supplement code"].filter(Boolean);var el=$("#matchNote");el.style.display=w.length?"":"none";el.textContent=w.length?"Lines were only matched when they have the same "+w.join(" and the same ")+". A line with no match under that rule shows as only on one side.":""}
+function renderMatchNote(){
+  var o=result.opts||{},w=[o.sameOp&&"oper code",o.sameSupp&&"supplement code"].filter(Boolean),msg=[];
+  if(o.only){var h=result.hidden||{a:0,b:0};msg.push("Only lines from "+o.only.map(fmtCode).join(", ")+" are compared ("+h.a+" of our line"+(h.a===1?"":"s")+" and "+h.b+" insurance line"+(h.b===1?"":"s")+" left out). The totals, rates and the overall difference at the top are for the whole estimate.")}
+  if(o.bad&&o.bad.length)msg.push("Not understood, so ignored: "+o.bad.join(", ")+". Type codes like S01 or S01-S03.");
+  if(w.length)msg.push("Lines were only matched when they have the same "+w.join(" and the same ")+". A line with no match under that rule shows as only on one side.");
+  var el=$("#matchNote");el.style.display=msg.length?"":"none";el.textContent=msg.join(" ");
+}
 function renderAll(){renderMatchNote();renderChecks();renderVerdict();renderChips();renderLines();renderTotals();renderRates()}
 function grand(e){var t=e.totals||{};return N(t.grandTotal)}
 function renderVerdict(){
@@ -443,7 +475,7 @@ function sentence(r){
 function codes(l){var c=[l.supp,l.op].filter(Boolean).join(" · ");return c?" ("+esc(c)+")":""}
 function renderLines(){
   var rows=shown(),box=$("#lineBody");
-  if(!rows.length){box.innerHTML='<div class="empty">'+(filter==="diff"?"No differences. The estimates agree line for line.":"Nothing in this view.")+"</div>";return}
+  if(!rows.length){box.innerHTML='<div class="empty">'+(result.opts&&result.opts.only&&!result.rows.length?"No lines on either estimate have the supplement codes you typed. Check the codes, or clear the box to compare every line.":filter==="diff"?"No differences. The estimates agree line for line.":"Nothing in this view.")+"</div>";return}
   box.innerHTML=rows.map(function(r){
     var o=r.o,t=r.t,x=o||t;
     var title=esc(x.desc||"(no description)")+(o&&t&&o.desc&&t.desc&&o.desc.toUpperCase()!==t.desc.toUpperCase()?'<span class="sm">Insurance calls it: '+esc(t.desc)+"</span>":"");
@@ -490,7 +522,7 @@ function renderRates(){
 /* ---------- copy ---------- */
 $("#copyBtn").addEventListener("click",function(){
   var A=result.A,B=result.B,rows=result.rows.filter(function(r){return r.status!=="same"});
-  var L=["Estimate differences"+(A.claim||B.claim?" – claim "+(A.claim||B.claim):"")+(A.vehicle||B.vehicle?" – "+(A.vehicle||B.vehicle):"")];
+  var L=["Estimate differences"+(result.opts&&result.opts.only?" ("+result.opts.only.map(fmtCode).join(", ")+" only)":"")+(A.claim||B.claim?" – claim "+(A.claim||B.claim):"")+(A.vehicle||B.vehicle?" – "+(A.vehicle||B.vehicle):"")];
   var ga=grand(A),gb=grand(B);if(ga!=null&&gb!=null)L.push("Jersey Collision "+money(ga)+" vs insurance "+money(gb)+" (difference "+money(r2(gb-ga))+")");
   function desc(l){return [l.supp,l.op,l.desc,l.partNo&&("#"+l.partNo)].filter(Boolean).join(" ")}
   function vals(l){return [l.price!=null&&money(l.price)+(l.qty&&l.qty!==1?" x"+l.qty:""),l.labor!=null&&hrs(l.labor)+" labor hrs",l.paint!=null&&hrs(l.paint)+" paint hrs"].filter(Boolean).join(", ")}
