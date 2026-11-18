@@ -163,6 +163,11 @@ td.chg{background:var(--hl)}
     <label class="hint" style="display:inline-flex;gap:.4rem;align-items:center"><input type="checkbox" id="fresh"> Re-read the PDFs from scratch</label>
     <span class="progress" id="progress"></span>
   </div>
+  <div class="run" style="margin-top:-.5rem">
+    <span class="hint">Only match lines that have the same:</span>
+    <label class="hint" style="display:inline-flex;gap:.4rem;align-items:center"><input type="checkbox" id="sameOp"> Oper code (Repl, R&amp;I, Rpr, Refn…)</label>
+    <label class="hint" style="display:inline-flex;gap:.4rem;align-items:center"><input type="checkbox" id="sameSupp"> Supplement code (E01, S01, S02…)</label>
+  </div>
 
   <section id="results" aria-live="polite">
     <div class="verdict" id="verdict"></div>
@@ -193,6 +198,7 @@ td.chg{background:var(--hl)}
         <tbody id="rateBody"></tbody>
       </table></div>
     </div>
+    <p class="note" id="matchNote"></p>
     <p class="note">Lines are read from each PDF by Claude and matched by description and part number. The dollar amount on each card is approximate: part price times quantity, plus hours at our labor rates, so rate differences show only in the rates table. Check any line that matters against the PDFs before sending it to the adjuster.</p>
   </section>
 </div>
@@ -210,7 +216,7 @@ function toast(m){var t=$("#toast");t.textContent=m;t.classList.add("show");clea
 if(window.pdfjsLib)pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
 var sides={ours:{label:"Jersey Collision",text:"",images:null,file:null},theirs:{label:"Insurance",text:"",images:null,file:null}};
-var sample=null, limits=null, ctl=null, result=null, filter="diff";
+var sample=null, limits=null, ctl=null, result=null, filter="diff", lastRead=null;
 
 var capReady=(async function(){
   try{ if(window.claude&&window.claude.use) sample=await window.claude.use("sample"); }catch(e){}
@@ -273,12 +279,12 @@ async function load(side,file){
 var PROMPT=function(label){return "You are reading an auto body repair estimate or supplement (CCC ONE, Mitchell, Audatex or similar). This one is from: "+label+".\n"+
 "Extract EVERY estimate line in order, and the totals and rates. Do not invent anything; use null for anything not shown. Numbers are plain (no $ or commas).\n"+
 "Reply with only this JSON:\n"+
-'{"vehicle":"","claim":"","estimateLabel":"e.g. Supplement S02","lines":[{"line":"12","op":"Repl|R&I|Rpr|Refn|Subl|Blnd|Algn|O/H|Add|...","desc":"Front bumper cover","partNo":"52119-0X935","partType":"OEM|A/M|LKQ|Reman|Opt OEM|null","qty":1,"price":412.18,"labor":2.1,"laborType":"Body|Frame|Mech|Struct|Glass|Diag|null","paint":3.0,"notes":"any flags such as Incl, included, judgment item"}],'+
+'{"vehicle":"","claim":"","estimateLabel":"e.g. Supplement S02","lines":[{"line":"12","supp":"S01|S02|E01|null","op":"Repl|R&I|Rpr|Refn|Subl|Blnd|Algn|O/H|Add|...","desc":"Front bumper cover","partNo":"52119-0X935","partType":"OEM|A/M|LKQ|Reman|Opt OEM|null","qty":1,"price":412.18,"labor":2.1,"laborType":"Body|Frame|Mech|Struct|Glass|Diag|null","paint":3.0,"notes":"any flags such as Incl, included, judgment item"}],'+
 '"totals":{"parts":null,"bodyLaborHours":null,"bodyLabor":null,"paintLaborHours":null,"paintLabor":null,"frameLaborHours":null,"frameLabor":null,"mechLaborHours":null,"mechLabor":null,"structLaborHours":null,"structLabor":null,"paintMaterials":null,"bodyMaterials":null,"sublet":null,"towing":null,"storage":null,"misc":null,"tax":null,"grandTotal":null,"deductible":null,"netTotal":null},'+
 '"rates":{"body":null,"paint":null,"frame":null,"mech":null,"struct":null,"paintMaterialsPerHour":null,"taxPercent":null}}\n'+
-"Rules: one object per estimate line, including sublet, misc and R&I lines. Labor hours go in labor, refinish hours in paint. price is the amount printed in that line’s price column, copied exactly as printed: never calculate, round or guess a number. Lines continue across page breaks: read every page and do not skip or merge lines. If a line shows m or * or Incl for an included operation, put it in notes. Ignore page headers, footers and disclaimers.";};
+"Rules: one object per estimate line, including sublet, misc and R&I lines. Labor hours go in labor, refinish hours in paint. price is the amount printed in that line’s price column, copied exactly as printed: never calculate, round or guess a number. Lines continue across page breaks: read every page and do not skip or merge lines. If a line shows m or * or Incl for an included operation, put it in notes. supp is the estimate or supplement code printed on that line (for example E01, S01, S02); when one sheet has several supplements, keep each line's own code; null if the line shows none. op is that line's operation (Oper) code exactly as printed. Ignore page headers, footers and disclaimers.";};
 function hashStr(str){var h1=0x811c9dc5,h2=0;for(var i=0;i<str.length;i++){var c=str.charCodeAt(i);h1=Math.imul(h1^c,16777619)>>>0;h2=(h2*31+c)>>>0}return h1.toString(36)+h2.toString(36)+str.length.toString(36)}
-function docKey(S){return "est-read-v2:"+(S.text.trim()?hashStr(S.text):S.imgKey||"")}
+function docKey(S){return "est-read-v3:"+(S.text.trim()?hashStr(S.text):S.imgKey||"")}
 function getCached(S){try{var v=localStorage.getItem(docKey(S));return v?JSON.parse(v):null}catch(e){return null}}
 function putCached(S,v){try{localStorage.setItem(docKey(S),JSON.stringify(v))}catch(e){}}
 async function extract(side,signal){
@@ -302,7 +308,7 @@ $("#runBtn").addEventListener("click",async function(){
   try{
     var res=await Promise.all([extract("ours",ctl.signal).then(function(r){setStatus("ours",(r.lines||[]).length+" lines read","good");return r}),
                                extract("theirs",ctl.signal).then(function(r){setStatus("theirs",(r.lines||[]).length+" lines read","good");return r})]);
-    try{result=compare(res[0],res[1]);filter="diff";renderAll();}
+    try{lastRead=res;result=compare(res[0],res[1],matchOpts());filter="diff";renderAll();}
     catch(err){window._raw=res;throw {code:"page_error",message:String(err&&err.message||err)}}
     $("#progress").textContent="";$("#results").style.display="block";
     $("#results").scrollIntoView({behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth",block:"start"});
@@ -315,16 +321,25 @@ $("#runBtn").addEventListener("click",async function(){
   }finally{$("#stopBtn").hidden=true;ready()}
 });
 $("#stopBtn").addEventListener("click",function(){if(ctl)ctl.abort()});
+function matchOpts(){return {sameOp:$("#sameOp").checked,sameSupp:$("#sameSupp").checked}}
+["sameOp","sameSupp"].forEach(function(id){
+  var box=$("#"+id);try{box.checked=localStorage.getItem("est-opt-"+id)==="1"}catch(e){}
+  box.addEventListener("change",function(){
+    try{localStorage.setItem("est-opt-"+id,box.checked?"1":"0")}catch(e){}
+    if(lastRead){result=compare(lastRead[0],lastRead[1],matchOpts());renderAll();toast("Lines matched again.")}
+  });
+});
 
 /* ---------- matching ---------- */
 var STOP={"W":1,"WITH":1,"AND":1,"THE":1,"ASSY":1,"ASSEMBLY":1,"A":1};
 function toks(s){return String(s||"").toUpperCase().replace(/\bL\b|\bLH\b/g,"LT").replace(/\bR\b|\bRH\b/g,"RT").replace(/\bFRT\b/g,"FRONT").replace(/[^A-Z0-9 ]/g," ").split(/\s+/).filter(function(t){return t&&!STOP[t]})}
 function jac(a,b){var A={},B={},i=0,u=0;a.forEach(function(t){A[t]=1});b.forEach(function(t){B[t]=1});Object.keys(A).forEach(function(t){if(B[t])i++});u=Object.keys(A).length+Object.keys(B).length-i;return u?i/u:0}
 function np(s){return String(s||"").toUpperCase().replace(/[^A-Z0-9]/g,"")}
-function nop(s){var o=String(s||"").toUpperCase().replace(/[^A-Z&]/g,"");if(/^RPL|^REPL/.test(o))return "REPL";if(/^R&I|^RI$/.test(o))return "R&I";if(/^RPR|^REP$/.test(o))return "RPR";if(/^REF|^RFN/.test(o))return "REFN";return o}
+function nop(s){var o=String(s||"").toUpperCase().replace(/[^A-Z&]/g,"");if(/^RPL|^REPL/.test(o))return "REPL";if(/^R&I|^RI$|^RANDI$/.test(o))return "R&I";if(/^RPR|^REP$|^REPAIR/.test(o))return "RPR";if(/^REF|^RFN/.test(o))return "REFN";if(/^BL[E]?ND/.test(o))return "BLND";if(/^SUBL/.test(o))return "SUBL";if(/^ALI?GN/.test(o))return "ALGN";if(/^OH$|^OVERHAUL/.test(o))return "O/H";return o}
+function nsupp(s){var m=String(s||"").toUpperCase().replace(/[^A-Z0-9]/g,"").match(/^([A-Z]*)0*(\d+)$/);return m?(m[1]||"S")+Number(m[2]):String(s||"").toUpperCase().replace(/[^A-Z0-9]/g,"")}
 function S(v){if(v==null)return "";if(typeof v==="object")return Array.isArray(v)?v.map(S).filter(Boolean).join("; "):Object.keys(v).map(function(k){return S(v[k])}).filter(Boolean).join(" ");v=String(v).trim();return /^(null|undefined|n\/a|none)$/i.test(v)?"":v}
 function NN(v){if(typeof v==="object"&&v!==null)return null;return N(v)}
-function clean(l){var d=S(l.desc||l.description);return {line:S(l.line),op:S(l.op||l.operation),desc:d,partNo:S(l.partNo||l.partNumber),partType:S(l.partType),qty:NN(l.qty),price:NN(l.price),labor:NN(l.labor),laborType:S(l.laborType),paint:NN(l.paint),notes:S(l.notes),_t:toks(d),_p:np(S(l.partNo||l.partNumber)),_o:nop(S(l.op||l.operation))}}
+function clean(l){var d=S(l.desc||l.description);return {line:S(l.line),supp:S(l.supp||l.supplement),_s:nsupp(S(l.supp||l.supplement)),op:S(l.op||l.operation),desc:d,partNo:S(l.partNo||l.partNumber),partType:S(l.partType),qty:NN(l.qty),price:NN(l.price),labor:NN(l.labor),laborType:S(l.laborType),paint:NN(l.paint),notes:S(l.notes),_t:toks(d),_p:np(S(l.partNo||l.partNumber)),_o:nop(S(l.op||l.operation))}}
 function tidy(E){
   if(Array.isArray(E))E={lines:E};
   if(!E||typeof E!=="object")E={};
@@ -334,10 +349,12 @@ function tidy(E){
 }
 function rateFor(est,type){var r=est.rates||{};var t=String(type||"").toLowerCase();if(/frame/.test(t))return N(r.frame)||N(r.body);if(/mech|diag/.test(t))return N(r.mech)||N(r.body);if(/struct/.test(t))return N(r.struct)||N(r.body);return N(r.body)}
 function lineValue(est,l){if(!l)return 0;var v=(l.price||0)*(l.qty||1);var br=rateFor(est,l.laborType),pr=N((est.rates||{}).paint);if(l.labor&&br)v+=l.labor*br;if(l.paint&&pr)v+=l.paint*pr;return r2(v)}
-function compare(A,B){
-  A=tidy(A);B=tidy(B);
+function compare(A,B,opts){
+  A=tidy(A);B=tidy(B);opts=opts||{};
   var a=(A.lines||[]).map(clean), b=(B.lines||[]).map(clean), pairs=[];
   a.forEach(function(x,i){b.forEach(function(y,j){
+    if(opts.sameOp&&x._o!==y._o)return;     // option: never pair a Repl line with an R&I line, etc.
+    if(opts.sameSupp&&x._s!==y._s)return;   // option: never pair an S01 line with an S02 line, etc.
     var s=jac(x._t,y._t);
     if(x._p&&y._p&&x._p===y._p)s+=1;
     if(x._o&&x._o===y._o)s+=.1;
@@ -359,7 +376,7 @@ function compare(A,B){
   rows=rows.filter(function(r){return r.status!=="skip"}); // one-sided lines with no price, labor or paint
   // order by our line order, inserting insurer-only lines near their position
   rows.sort(function(x,y){var kx=x.oi!=null?x.oi:(x.tj-0.5),ky=y.oi!=null?y.oi:(y.tj-0.5);return kx-ky});
-  return {A:A,B:B,rows:rows};
+  return {A:A,B:B,rows:rows,opts:opts};
 }
 
 /* ---------- render ---------- */
@@ -381,7 +398,8 @@ function renderChecks(){
   el.innerHTML='<h3>Reading check</h3><p class="hint" style="margin-bottom:.75rem">'+(bad.length?"Some lines may have been misread. The lines read don’t add up to the totals printed on the estimate below. Check those areas against the PDF, or tick “Re-read the PDFs from scratch” and compare again.":"The lines read add up to the totals printed on each estimate.")+'</p><div class="tablewrap"><table><thead><tr><th>Estimate</th><th>Check</th><th class="num">Lines read add up to</th><th class="num">Printed on estimate</th><th>Result</th></tr></thead><tbody>'+
     out.map(function(c){var f=c.h?hrs:money;return "<tr><td>"+c.who+"</td><td>"+c.what+'</td><td class="num">'+f(c.lines)+'</td><td class="num">'+f(c.printed)+'</td><td>'+(c.off?'<span class="tag t-diff">Doesn’t add up</span>':'<span class="tag t-same">Adds up</span>')+"</td></tr>"}).join("")+"</tbody></table></div>";
 }
-function renderAll(){renderChecks();renderVerdict();renderChips();renderLines();renderTotals();renderRates()}
+function renderMatchNote(){var o=result.opts||{},w=[o.sameOp&&"oper code",o.sameSupp&&"supplement code"].filter(Boolean);var el=$("#matchNote");el.style.display=w.length?"":"none";el.textContent=w.length?"Lines were only matched when they have the same "+w.join(" and the same ")+". A line with no match under that rule shows as only on one side.":""}
+function renderAll(){renderMatchNote();renderChecks();renderVerdict();renderChips();renderLines();renderTotals();renderRates()}
 function grand(e){var t=e.totals||{};return N(t.grandTotal)}
 function renderVerdict(){
   var A=result.A,B=result.B,ga=grand(A),gb=grand(B),c=counts();
@@ -422,6 +440,7 @@ function sentence(r){
   if(!bits.length)return "The values differ slightly.";
   var last=bits.pop();return "The insurer "+(bits.length?bits.join(", ")+" and "+last:last)+".";
 }
+function codes(l){var c=[l.supp,l.op].filter(Boolean).join(" · ");return c?" ("+esc(c)+")":""}
 function renderLines(){
   var rows=shown(),box=$("#lineBody");
   if(!rows.length){box.innerHTML='<div class="empty">'+(filter==="diff"?"No differences. The estimates agree line for line.":"Nothing in this view.")+"</div>";return}
@@ -432,7 +451,7 @@ function renderLines(){
     var head='<div class="dtop"><div><span class="tag '+CLS[r.status]+'">'+LBL[r.status]+'</span><div class="dtitle" style="margin-top:.4rem">'+title+"</div></div>"+gap+"</div>";
     var say='<p class="dsay">'+esc(sentence(r))+"</p>";
     if(r.status==="same"){
-      return '<div class="dcard k-same">'+head+'<div class="how"><span>'+esc(r.how||"")+"</span><span>Our line <b>"+esc(o.line||"—")+"</b> · Insurance line <b>"+esc(t.line||"—")+"</b></span></div></div>";
+      return '<div class="dcard k-same">'+head+'<div class="how"><span>'+esc(r.how||"")+"</span><span>Our line <b>"+esc(o.line||"—")+"</b>"+codes(o)+" · Insurance line <b>"+esc(t.line||"—")+"</b>"+codes(t)+"</span></div></div>";
     }
     var g='<div class="grid3"><div class="h">Field</div><div class="h o">Jersey Collision</div><div class="h t">Insurance</div><div class="h c">Change</div>';
     FIELDS.forEach(function(f){
@@ -447,7 +466,7 @@ function renderLines(){
     });
     g+="</div>";
     var notes=[o&&o.notes&&("Our note: "+o.notes),t&&t.notes&&("Insurance note: "+t.notes)].filter(Boolean);
-    var how='<div class="how">'+(r.how?"<span>"+esc(r.how)+"</span>":"")+"<span>"+(o?"Our line <b>"+esc(o.line||"—")+"</b>":"")+(o&&t?" · ":"")+(t?"Insurance line <b>"+esc(t.line||"—")+"</b>":"")+"</span>"+notes.map(function(n){return "<span>"+esc(n)+"</span>"}).join("")+"</div>";
+    var how='<div class="how">'+(r.how?"<span>"+esc(r.how)+"</span>":"")+"<span>"+(o?"Our line <b>"+esc(o.line||"—")+"</b>"+codes(o):"")+(o&&t?" · ":"")+(t?"Insurance line <b>"+esc(t.line||"—")+"</b>"+codes(t):"")+"</span>"+notes.map(function(n){return "<span>"+esc(n)+"</span>"}).join("")+"</div>";
     return '<div class="dcard k-'+r.status+'">'+head+say+g+how+"</div>";
   }).join("");
 }
@@ -473,13 +492,13 @@ $("#copyBtn").addEventListener("click",function(){
   var A=result.A,B=result.B,rows=result.rows.filter(function(r){return r.status!=="same"});
   var L=["Estimate differences"+(A.claim||B.claim?" – claim "+(A.claim||B.claim):"")+(A.vehicle||B.vehicle?" – "+(A.vehicle||B.vehicle):"")];
   var ga=grand(A),gb=grand(B);if(ga!=null&&gb!=null)L.push("Jersey Collision "+money(ga)+" vs insurance "+money(gb)+" (difference "+money(r2(gb-ga))+")");
-  function desc(l){return [l.op,l.desc,l.partNo&&("#"+l.partNo)].filter(Boolean).join(" ")}
+  function desc(l){return [l.supp,l.op,l.desc,l.partNo&&("#"+l.partNo)].filter(Boolean).join(" ")}
   function vals(l){return [l.price!=null&&money(l.price)+(l.qty&&l.qty!==1?" x"+l.qty:""),l.labor!=null&&hrs(l.labor)+" labor hrs",l.paint!=null&&hrs(l.paint)+" paint hrs"].filter(Boolean).join(", ")}
   var o=rows.filter(function(r){return r.status==="ours"}),t=rows.filter(function(r){return r.status==="theirs"}),d=rows.filter(function(r){return r.status==="diff"});
   if(o.length){L.push("","On our estimate, not on yours:");o.forEach(function(r){L.push("- "+desc(r.o)+(vals(r.o)?" ("+vals(r.o)+")":""))})}
   if(d.length){L.push("","Lines that differ (ours → yours):");d.forEach(function(r){var parts=[];var c=r.chg;
     if(c.price)parts.push("price "+money(r.o.price)+" → "+money(r.t.price));if(c.labor)parts.push("labor "+hrs(r.o.labor)+" → "+hrs(r.t.labor)+" hrs");if(c.paint)parts.push("paint "+hrs(r.o.paint)+" → "+hrs(r.t.paint)+" hrs");
-    L.push("- "+r.o.desc+": "+parts.join("; "))})}
+    L.push("- "+[r.o.supp,r.o.op,r.o.desc].filter(Boolean).join(" ")+": "+parts.join("; "))})}
   if(t.length){L.push("","On your estimate, not on ours:");t.forEach(function(r){L.push("- "+desc(r.t)+(vals(r.t)?" ("+vals(r.t)+")":""))})}
   var text=L.join("\n"),fb=$("#fallback");
   function fall(){fb.style.display="block";fb.value=text;fb.focus();fb.select();toast("Select all and copy the text below")}
