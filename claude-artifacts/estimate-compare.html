@@ -67,6 +67,9 @@ button:focus-visible,textarea:focus-visible,.drop:focus-visible,select:focus-vis
 .run{display:flex;flex-wrap:wrap;align-items:center;gap:1rem;margin:1.5rem 0 2.5rem}
 .progress{color:var(--muted);font-size:.95rem}
 .codes{font:inherit;font-size:.95rem;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:.45rem .65rem;width:14rem;max-width:100%}
+.pdfbar{display:flex;flex-wrap:wrap;align-items:center;gap:.6rem}
+.pdfsel{width:auto;padding:.5rem .6rem}
+#pdfBtn{padding:.55rem 1.1rem;font-size:.95rem}
 .codes:focus-visible{outline:3px solid var(--navy);outline-offset:2px}
 #results{display:none}
 .verdict{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:1.5rem;margin-bottom:1.25rem}
@@ -183,7 +186,19 @@ td.chg{background:var(--hl)}
     <div class="card lines">
       <div class="toolbar">
         <div><h3 style="margin:0">Line by line</h3><p class="hint">Only lines where the price, labor hours or paint hours differ. Highlighted values are the ones that don’t match.</p></div>
-        <button class="ghost" id="copyBtn">Copy differences</button>
+        <div class="pdfbar">
+          <button class="ghost" id="copyBtn">Copy differences</button>
+          <label class="hint" for="pdfType">PDF report:</label>
+          <select class="codes pdfsel" id="pdfType">
+            <option value="diff">All differences</option>
+            <option value="ours">Only on ours</option>
+            <option value="theirs">Only on insurance</option>
+            <option value="diffonly">Different</option>
+            <option value="same">Same</option>
+            <option value="all">Every line</option>
+          </select>
+          <button class="primary" id="pdfBtn">Save as PDF</button>
+        </div>
       </div>
       <div class="chips" id="chips"></div>
       <div class="dlist" id="lineBody"></div>
@@ -315,7 +330,7 @@ $("#runBtn").addEventListener("click",async function(){
   try{
     var res=await Promise.all([extract("ours",ctl.signal).then(function(r){setStatus("ours",(r.lines||[]).length+" lines read","good");return r}),
                                extract("theirs",ctl.signal).then(function(r){setStatus("theirs",(r.lines||[]).length+" lines read","good");return r})]);
-    try{lastRead=res;result=compare(res[0],res[1],matchOpts());filter="diff";renderAll();}
+    try{lastRead=res;result=compare(res[0],res[1],matchOpts());filter="diff";$("#pdfType").value="diff";renderAll();}
     catch(err){window._raw=res;throw {code:"page_error",message:String(err&&err.message||err)}}
     $("#progress").textContent="";$("#results").style.display="block";
     $("#results").scrollIntoView({behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth",block:"start"});
@@ -450,9 +465,10 @@ function counts(){var c={ours:0,theirs:0,diff:0,same:0};result.rows.forEach(func
 function renderChips(){
   var c=counts(),list=[["diff","All differences",c.ours+c.theirs+c.diff,"var(--navy)"],["ours",LBL.ours,c.ours,"var(--cyan)"],["theirs",LBL.theirs,c.theirs,"var(--theirs)"],["diffonly",LBL.diff,c.diff,"var(--warn)"],["same",LBL.same,c.same,"var(--ok)"],["all","Every line",result.rows.length,"var(--muted)"]];
   $("#chips").innerHTML=list.filter(function(x){return x[2]||x[0]==="diff"||x[0]==="all"}).map(function(x){return '<button class="chip" data-f="'+x[0]+'" aria-pressed="'+(filter===x[0])+'"><span class="dot" style="background:'+x[3]+'"></span>'+esc(x[1])+" <b>"+x[2]+"</b></button>"}).join("");
-  $$("#chips .chip").forEach(function(b){b.addEventListener("click",function(){filter=b.dataset.f;renderChips();renderLines()})});
+  $$("#chips .chip").forEach(function(b){b.addEventListener("click",function(){filter=b.dataset.f;$("#pdfType").value=filter;renderChips();renderLines()})});
 }
-function shown(){return result.rows.filter(function(r){if(filter==="all")return true;if(filter==="diff")return r.status!=="same";if(filter==="diffonly")return r.status==="diff";return r.status===filter})}
+function rowsFor(f){return result.rows.filter(function(r){if(f==="all")return true;if(f==="diff")return r.status!=="same";if(f==="diffonly")return r.status==="diff";return r.status===f})}
+function shown(){return rowsFor(filter)}
 var FIELDS=[["price","Price"],["labor","Labor hours"],["paint","Paint hours"]];
 function fv(k,v){if(v==null||v==="")return null;if(k==="price")return money(v);if(k==="labor"||k==="paint")return hrs(v);return String(v)}
 function change(k,o,t){
@@ -518,6 +534,89 @@ function renderRates(){
   $("#rateBody").innerHTML=rows.map(function(x){var va=N(a[x[0]]),vb=N(b[x[0]]),d=(va!=null&&vb!=null)?r2(vb-va):null;var f=x[0]==="taxPercent"?function(v){return v==null?"—":v+"%"}:money;
     return "<tr><td>"+x[1]+'</td><td class="num">'+f(va)+'</td><td class="num">'+f(vb)+'</td><td class="num '+(d>0?"d-pos":d<0?"d-neg":"")+'">'+(d==null?"—":x[0]==="taxPercent"?(d>0?"+":"")+d+"%":money(d))+"</td></tr>"}).join("");
 }
+
+/* ---------- PDF ---------- */
+var PDF_NAMES={diff:"All differences",ours:"Only on ours",theirs:"Only on insurance",diffonly:"Different",same:"Same",all:"Every line"};
+var downloadsP=(async function(){try{return window.claude&&window.claude.use?await window.claude.use("downloads"):null}catch(e){return null}})();
+function loadScript(src){return new Promise(function(ok,no){var el=document.createElement("script");el.src=src;el.onload=ok;el.onerror=function(){no(new Error("nolib"))};document.head.appendChild(el)})}
+var pdfLibs=null;
+function getPdfLibs(){
+  if(!pdfLibs)pdfLibs=loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js")
+    .then(function(){return loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js")})
+    .catch(function(e){pdfLibs=null;throw e});
+  return pdfLibs;
+}
+// The PDF's built-in font has no minus sign, arrow or curly quotes: swap them for plain ones.
+function pt(v){return String(v==null?"":v).replace(/\u2212/g,"-").replace(/\u2192/g,"->").replace(/[\u2018\u2019]/g,"'").replace(/[\u201C\u201D]/g,'"').replace(/\u2026/g,"...").replace(/[\u2013\u2014]/g,"-").replace(/\u00B7/g,"|").replace(/[^\x09\x0A\x0D\x20-\x7E\u00A0-\u00FF]/g,"")}
+function vals3(l){if(!l)return "";return [l.price!=null&&money(l.price)+(l.qty&&l.qty!==1?" x"+l.qty:""),l.labor!=null&&hrs(l.labor)+" labor",l.paint!=null&&hrs(l.paint)+" paint"].filter(Boolean).join("\n")}
+function buildPdf(type){
+  var J=window.jspdf.jsPDF, doc=new J({orientation:"landscape",unit:"pt",format:"letter"});
+  var A=result.A,B=result.B,o=result.opts||{},rows=rowsFor(type),W=doc.internal.pageSize.getWidth(),M=36,y=M;
+  var NAVY=[44,58,147],INK=[26,32,80],MUTED=[90,98,133];
+  doc.setFillColor(NAVY[0],NAVY[1],NAVY[2]);doc.rect(0,0,W,6,"F");
+  doc.setFont("helvetica","bold");doc.setFontSize(18);doc.setTextColor(INK[0],INK[1],INK[2]);
+  doc.text(pt("Estimate comparison: "+PDF_NAMES[type]),M,y+14);y+=30;
+  doc.setFont("helvetica","normal");doc.setFontSize(10);doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
+  var meta=[A.vehicle||B.vehicle,(A.claim||B.claim)&&("Claim "+(A.claim||B.claim)),[A.estimateLabel,B.estimateLabel].filter(Boolean).join(" vs "),"Prepared "+new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})].filter(Boolean).join("  |  ");
+  doc.text(doc.splitTextToSize(pt(meta),W-2*M),M,y);y+=16;
+  var ga=grand(A),gb=grand(B),c=counts(),sum=[];
+  if(ga!=null&&gb!=null){var d=r2(gb-ga);sum.push(Math.abs(d)<.005?"Both estimates total "+money(ga)+".":"Insurance is "+money(Math.abs(d))+(d<0?" lower":" higher")+" than our estimate (ours "+money(ga)+", insurance "+money(gb)+").")}
+  sum.push(c.ours+" only on ours, "+c.theirs+" only on insurance, "+c.diff+" different, "+c.same+" the same. This report lists "+rows.length+" line"+(rows.length===1?"":"s")+".");
+  var notes=[];
+  if(o.only)notes.push("Only supplements "+o.only.map(fmtCode).join(", ")+" are compared. Totals and rates are for the whole estimate.");
+  var w=[o.sameOp&&"oper code",o.sameSupp&&"supplement code"].filter(Boolean);
+  if(w.length)notes.push("Lines were only matched when they have the same "+w.join(" and the same ")+".");
+  doc.setTextColor(INK[0],INK[1],INK[2]);doc.setFontSize(11);
+  sum.concat(notes).forEach(function(t,i){var L=doc.splitTextToSize(pt(t),W-2*M);if(i===0)doc.setFont("helvetica","bold");else doc.setFont("helvetica","normal");doc.text(L,M,y+4);y+=L.length*14});
+  y+=6;
+  var STC={ours:[12,110,142],theirs:[107,63,160],diff:[163,95,0],same:[94,122,0]};
+  var body=rows.map(function(r){var x=r.o||r.t;
+    var title=(x.desc||"(no description)")+(r.o&&r.t&&r.o.desc&&r.t.desc&&r.o.desc.toUpperCase()!==r.t.desc.toUpperCase()?"\nInsurance: "+r.t.desc:"")+(x.partNo?"\n#"+x.partNo:"");
+    var code=function(l){return l?[l.line&&("Line "+l.line),l.supp,l.op].filter(Boolean).join(" | "):"-"};
+    var gap=(r.status==="same"||!r.gap)?"":(r.gap>0?"+":"-")+money(Math.abs(r.gap)).replace("\u2212","");
+    return [LBL[r.status],pt(title),pt(code(r.o)),pt(r.o?vals3(r.o):"Not on ours"),pt(code(r.t)),pt(r.t?vals3(r.t):"Not on insurance"),pt(r.status==="ours"||r.status==="theirs"||r.status==="same"?"":sentence(r).replace(/^The insurer /,"")),pt(gap)]});
+  doc.autoTable({startY:y,margin:{left:M,right:M,bottom:44},
+    head:[["Status","Item","Ours","Ours: price / hours","Insurance","Insurance: price / hours","What changed","Insurance vs ours"]],
+    body:body.length?body:[[{content:"No lines in this report.",colSpan:8,styles:{halign:"center",textColor:MUTED}}]],
+    styles:{font:"helvetica",fontSize:8.5,cellPadding:4,textColor:INK,lineColor:[220,225,238],lineWidth:.5,valign:"top",overflow:"linebreak"},
+    headStyles:{fillColor:NAVY,textColor:255,fontStyle:"bold"},alternateRowStyles:{fillColor:[246,248,252]},
+    columnStyles:{0:{cellWidth:70,fontStyle:"bold"},1:{cellWidth:150},2:{cellWidth:62},3:{cellWidth:70},4:{cellWidth:62},5:{cellWidth:70},7:{cellWidth:58,halign:"right",fontStyle:"bold"}},
+    didParseCell:function(h){if(h.section!=="body"||!rows.length)return;var r=rows[h.row.index];if(h.column.index===0)h.cell.styles.textColor=STC[r.status];if(h.column.index===7)h.cell.styles.textColor=r.gap>0?[94,122,0]:[178,56,31]}
+  });
+  y=doc.lastAutoTable.finalY+20;
+  var a=A.totals||{},b=B.totals||{},tot=TOT.filter(function(x){return N(a[x[0]])!=null||N(b[x[0]])!=null});
+  var f=function(v,h){return pt(v==null?"-":h?hrs(v):money(v))};
+  var dd=function(va,vb,h){if(va==null||vb==null)return "-";var d=r2(vb-va);return pt(d===0?(h?"0.0":"$0.00"):h?(d>0?"+":"-")+hrs(Math.abs(d)):money(d))};
+  var R=[["body","Body labor $/hr"],["paint","Paint labor $/hr"],["frame","Frame labor $/hr"],["mech","Mechanical labor $/hr"],["struct","Structural labor $/hr"],["paintMaterialsPerHour","Paint materials $/hr"],["taxPercent","Tax %"]];
+  var ra=A.rates||{},rb=B.rates||{},rates=R.filter(function(x){return N(ra[x[0]])!=null||N(rb[x[0]])!=null});
+  var tbl=function(title,rowsT){if(!rowsT.length)return;if(y>doc.internal.pageSize.getHeight()-120){doc.addPage();y=M}
+    doc.setFont("helvetica","bold");doc.setFontSize(12);doc.setTextColor(INK[0],INK[1],INK[2]);doc.text(title,M,y);
+    doc.autoTable({startY:y+6,margin:{left:M,right:M,bottom:44},tableWidth:420,head:[["",'Jersey Collision',"Insurance","Difference"]],body:rowsT,
+      styles:{font:"helvetica",fontSize:9,cellPadding:3.5,textColor:INK,lineColor:[220,225,238],lineWidth:.5},headStyles:{fillColor:NAVY,textColor:255},
+      columnStyles:{1:{halign:"right"},2:{halign:"right"},3:{halign:"right"}}});
+    y=doc.lastAutoTable.finalY+20};
+  tbl("Totals (whole estimate)",tot.map(function(x){var va=N(a[x[0]]),vb=N(b[x[0]]);return [x[1],f(va,x[2]),f(vb,x[2]),dd(va,vb,x[2])]}));
+  tbl("Labor and material rates",rates.map(function(x){var va=N(ra[x[0]]),vb=N(rb[x[0]]),pc=x[0]==="taxPercent";return [x[1],pc?(va==null?"-":va+"%"):f(va),pc?(vb==null?"-":vb+"%"):f(vb),pc?(va==null||vb==null?"-":r2(vb-va)+"%"):dd(va,vb)]}));
+  var n=doc.getNumberOfPages(),H=doc.internal.pageSize.getHeight();
+  for(var i=1;i<=n;i++){doc.setPage(i);doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor(MUTED[0],MUTED[1],MUTED[2]);
+    doc.text(pt("Lines read from each estimate by Claude. Dollar differences are approximate. Check any line that matters against the estimates."),M,H-26);
+    doc.text("Page "+i+" of "+n,W-M,H-26,{align:"right"})}
+  return doc;
+}
+function pdfName(type){var id=(result.A.claim||result.B.claim||result.A.vehicle||result.B.vehicle||"").replace(/[^A-Za-z0-9 ._-]+/g," ").trim().slice(0,60);return ("Estimate compare"+(id?" - "+id:"")+" - "+PDF_NAMES[type]+(result.opts&&result.opts.only?" ("+result.opts.only.map(fmtCode).join(" ")+")":"")+".pdf").replace(/\s+/g," ")}
+$("#pdfBtn").addEventListener("click",async function(){
+  if(!result)return;
+  var btn=$("#pdfBtn"),type=$("#pdfType").value;btn.disabled=true;var old=btn.textContent;btn.textContent="Making PDF…";
+  try{
+    await getPdfLibs();
+    var doc=buildPdf(type),name=pdfName(type),dl=await downloadsP;
+    if(dl){
+      try{await dl.save({filename:name,data:doc.output("blob")});toast("PDF saved.")}
+      catch(e){var c=e&&e.code;if(c==="declined")toast("PDF not saved.");else if(c==="rate_limited")toast("A save is already waiting for you. Finish that one first.");else{doc.save(name)}}
+    } else doc.save(name); // outside claude.ai: a normal browser download
+  }catch(e){toast(e&&e.message==="nolib"?"The PDF maker didn’t load. Check the internet connection and try again.":"The PDF couldn’t be made ("+String(e&&e.message||e)+").")}
+  finally{btn.disabled=false;btn.textContent=old}
+});
 
 /* ---------- copy ---------- */
 $("#copyBtn").addEventListener("click",function(){
